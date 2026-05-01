@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Life</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #ff2a2a;
+    --muted: #555;
+    --line: #1a1a1a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 44px;
+    padding: 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    z-index: 2;
+    user-select: none;
+  }
+  .title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .hints {
+    display: flex;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .hints b {
+    font-weight: 600;
+    color: var(--fg);
+    margin-right: 4px;
+  }
+  .gen {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+  }
+  canvas {
+    position: fixed;
+    top: 44px; left: 0;
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  @media (max-width: 720px) {
+    .hints { display: none; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="title">Life</div>
+    <div class="hints">
+      <span><b>space</b>play/pause</span>
+      <span><b>n</b>step</span>
+      <span><b>r</b>random</span>
+      <span><b>c</b>clear</span>
+    </div>
+    <div class="gen" id="gen">gen 0000 · paused</div>
+  </header>
+  <canvas id="grid"></canvas>
+
+<script>
+(() => {
+  const CELL = 40;
+  const HEADER_H = 44;
+  const TICK_MS = 100;
+  const RAND_DENSITY = 0.25;
+
+  const canvas = document.getElementById("grid");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const genEl = document.getElementById("gen");
+
+  let cols = 0, rows = 0;
+  let cur = new Uint8Array(0);
+  let nxt = new Uint8Array(0);
+  let dpr = 1;
+  let running = false;
+  let generation = 0;
+  let lastTick = 0;
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight - HEADER_H;
+    cols = Math.max(8, Math.floor(cssW / CELL));
+    rows = Math.max(8, Math.floor(cssH / CELL));
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    cur = new Uint8Array(cols * rows);
+    nxt = new Uint8Array(cols * rows);
+    generation = 0;
+    updateGen();
+    draw();
+  }
+
+  function idx(x, y) { return y * cols + x; }
+
+  function step() {
+    for (let y = 0; y < rows; y++) {
+      const yU = (y === 0 ? rows - 1 : y - 1) * cols;
+      const yM = y * cols;
+      const yD = (y === rows - 1 ? 0 : y + 1) * cols;
+      for (let x = 0; x < cols; x++) {
+        const xL = x === 0 ? cols - 1 : x - 1;
+        const xR = x === cols - 1 ? 0 : x + 1;
+        const n =
+          cur[yU + xL] + cur[yU + x] + cur[yU + xR] +
+          cur[yM + xL] +               cur[yM + xR] +
+          cur[yD + xL] + cur[yD + x] + cur[yD + xR];
+        const alive = cur[yM + x];
+        nxt[yM + x] = (n === 3 || (alive && n === 2)) ? 1 : 0;
+      }
+    }
+    const tmp = cur; cur = nxt; nxt = tmp;
+    generation++;
+  }
+
+  function draw() {
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight - HEADER_H;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    ctx.fillStyle = "#ff2a2a";
+    for (let y = 0; y < rows; y++) {
+      const row = y * cols;
+      const py = y * CELL;
+      for (let x = 0; x < cols; x++) {
+        if (cur[row + x]) {
+          ctx.fillRect(x * CELL, py, CELL, CELL);
+        }
+      }
+    }
+  }
+
+  function updateGen() {
+    const g = String(generation).padStart(4, "0");
+    genEl.textContent = `gen ${g} · ${running ? "running" : "paused"}`;
+  }
+
+  function loop(t) {
+    if (running && t - lastTick >= TICK_MS) {
+      step();
+      lastTick = t;
+      draw();
+      updateGen();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function randomize() {
+    for (let i = 0; i < cur.length; i++) cur[i] = Math.random() < RAND_DENSITY ? 1 : 0;
+    generation = 0;
+    draw();
+    updateGen();
+  }
+
+  function clear() {
+    cur.fill(0);
+    generation = 0;
+    draw();
+    updateGen();
+  }
+
+  let drawing = false;
+  let drawValue = 1;
+  let lastCell = -1;
+
+  function cellFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / CELL);
+    const y = Math.floor((e.clientY - rect.top) / CELL);
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return -1;
+    return idx(x, y);
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    const i = cellFromEvent(e);
+    if (i < 0) return;
+    drawing = true;
+    drawValue = cur[i] ? 0 : 1;
+    cur[i] = drawValue;
+    lastCell = i;
+    canvas.setPointerCapture(e.pointerId);
+    draw();
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drawing) return;
+    const i = cellFromEvent(e);
+    if (i < 0 || i === lastCell) return;
+    cur[i] = drawValue;
+    lastCell = i;
+    draw();
+  });
+
+  function endDraw(e) {
+    if (!drawing) return;
+    drawing = false;
+    lastCell = -1;
+    if (e && canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  }
+  canvas.addEventListener("pointerup", endDraw);
+  canvas.addEventListener("pointercancel", endDraw);
+
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    switch (e.key) {
+      case " ":
+        e.preventDefault();
+        running = !running;
+        lastTick = performance.now();
+        updateGen();
+        break;
+      case "n": case "N":
+        if (!running) { step(); draw(); updateGen(); }
+        break;
+      case "r": case "R":
+        randomize();
+        break;
+      case "c": case "C":
+        clear();
+        break;
+    }
+  });
+
+  window.addEventListener("resize", resize);
+
+  resize();
+  randomize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
